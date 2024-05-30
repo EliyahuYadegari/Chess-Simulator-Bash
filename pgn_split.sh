@@ -14,20 +14,12 @@ file_exists() {
     fi
 }
 
-# Function to create a unique directory if it doesn't exist
-create_unique_directory() {
-    local base_dir="$1"
-    local dest_dir="$base_dir"
-    local count=1
-
-    while [ -d "$dest_dir" ]; do
-        dest_dir="${base_dir}_${count}"
-        count=$((count + 1))
-    done
-
-    mkdir -p "$dest_dir"
-    echo "Created directory '$dest_dir'."
-    echo "$dest_dir"
+# Function to create a directory if it doesn't exist
+create_directory() {
+    if [ ! -d "$1" ]; then
+        mkdir -p "$1"
+        echo "Created directory '$1'."
+    fi
 }
 
 # Function to check the validity of the PGN file
@@ -88,8 +80,8 @@ file_exists "$input_file"
 # Check the validity of the PGN file
 check_pgn_validity "$input_file"
 
-# Ensure the destination directory is unique and create it
-dest_dir=$(create_unique_directory "$dest_dir")
+# Ensure the destination directory exists or create it
+create_directory "$dest_dir"
 
 # Split the PGN file into individual game files
 split_pgn_file "$input_file" "$dest_dir"
