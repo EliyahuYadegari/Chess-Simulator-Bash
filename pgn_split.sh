@@ -25,7 +25,7 @@ create_directory() {
 # Function to check the validity of the PGN file
 check_pgn_validity() {
     local input_file="$1"
-    if ! grep -q '\[Event' "$input_file"; then
+    if ! grep -q '\[Event ' "$input_file"; then
         echo "Error: The file '$input_file' does not contain valid PGN data (missing [Event] tag)."
         exit 1
     fi
@@ -40,8 +40,8 @@ split_pgn_file() {
     local game_started=false
 
     while IFS= read -r line; do
-        # Detect the start of a new game by looking for [Event] tag
-        if [[ $line == \[Event* ]]; then
+        # Detect the start of a new game by looking for "[Event " tag
+        if [[ $line == \[Event\ * ]]; then
             if [ "$game_started" = true ]; then
                 game_count=$((game_count + 1))
                 echo -e "$game_content" > "$dest_dir/$(basename "$input_file" .pgn)_$game_count.pgn"
