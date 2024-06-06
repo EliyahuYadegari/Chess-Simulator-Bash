@@ -1,123 +1,162 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
 #include <sys/wait.h>
+#include <ctype.h>
 
 #define MAX_COMMANDS 100
 #define MAX_COMMAND_LENGTH 100
-#define MAX_PATHS 10
-#define MAX_PATH_LENGTH 100
+#define MAX_HISTORY 100
 
-char commands[MAX_COMMANDS][MAX_COMMAND_LENGTH];
-char paths[MAX_PATHS][MAX_PATH_LENGTH];
-int num_commands = 0;
-int num_paths = 0;
+char *history[MAX_HISTORY];
+int history_count = 0;
 
-void read_commands(int argc, char *argv[]) {
-    for (int i = 1; i < argc; i++) {
-        strcpy(paths[num_paths], argv[i]);
-        num_paths++;
-    }
-}
-
-void read_input() {
-    printf("$ ");
-    fflush(stdout);
-
-    if (fgets(commands[num_commands], MAX_COMMAND_LENGTH, stdin) != NULL) {
-        strtok(commands[num_commands], "\n");  // Remove trailing newline
-        num_commands++;
+void add_to_history(const char *command) {
+    if (history_count < MAX_HISTORY) {
+        history[history_count++] = strdup(command);
     } else {
-        printf("\n");
-        exit(EXIT_SUCCESS);  // Exit on EOF (Ctrl+D)
+        free(history[0]);
+        memmove(history, history + 1, (MAX_HISTORY - 1) * sizeof(char *));
+        history[MAX_HISTORY - 1] = strdup(command);
     }
 }
 
-void execute_command(char *command, char *args[]) {
-    pid_t pid = fork();
+void show_history() {
+    for (int i = 0; i < history_count; i++) {
+        printf("%d %s\n", i + 1, history[i]);
+    }
+}
 
-    if (pid < 0) {
+void convert_windows_to_wsl_path(char *path) {
+    if (path[1] == ':' && path[2] == '\\') {
+        path[0] = '/';
+        path[1] = 'm';
+        path[2] = 'n';
+        path[3] = 't';
+        path[4] = '/';
+        path[5] = tolower(path[0]);
+        for (int i = 6; path[i-1] != '\0'; i++) {
+            if (path[i] == '\\') {
+                path[i] = '/';
+            } else {
+                path[i] = tolower(path[i]);
+            }
+        }
+    }
+}
+
+void change_directory(char *path) {
+    char wsl_path[MAX_COMMAND_LENGTH];
+    strcpy(wsl_path, path);
+    convert_windows_to_wsl_path(wsl_path);
+    if (chdir(wsl_path) == -1) {
+        perror("chdir failed");
+    }
+}
+
+
+void print_working_directory() {
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        printf("%s\n", cwd);
+    } else {
+        perror("getcwd failed");
+    }
+}
+
+void execute_command(char **args) {
+    pid_t pid = fork();
+    if (pid == -1) {
         perror("fork failed");
         exit(EXIT_FAILURE);
-    }
-
-    if (pid == 0) {
-        execvp(command, args);
-        perror("exec failed");
-        exit(EXIT_FAILURE);
+    } else if (pid == 0) {
+        if (execvp(args[0], args) == -1) {
+            perror("exec failed");
+            exit(EXIT_FAILURE);
+        }
     } else {
         wait(NULL);
     }
 }
 
-void execute_custom_command(char *command) {
-    if (strcmp(command, "history") == 0) {
-        for (int i = 0; i < num_commands; i++) {
-            printf("%s\n", commands[i]);
+void parse_command(char *input, char **args) {
+    int i = 0;
+    char *token;
+    int in_quote = 0;
+    int arg_start = 0;
+    char buffer[MAX_COMMAND_LENGTH];
+    int buffer_pos = 0;
+
+    for (int j = 0; input[j] != '\0'; j++) {
+        if (input[j] == '\"') {
+            in_quote = !in_quote;
+            continue;
         }
-    } else if (strcmp(command, "pwd") == 0) {
-        char cwd[1024];
-        if (getcwd(cwd, sizeof(cwd)) != NULL) {
-            printf("%s\n", cwd);
+
+        if (input[j] == ' ' && !in_quote) {
+            buffer[buffer_pos] = '\0';
+            args[i++] = strdup(buffer);
+            buffer_pos = 0;
+            if (i == 1 && strcmp(args[0], "cd") == 0) {
+                args[i++] = strdup(input + j + 1);
+                break;
+            }
         } else {
-            perror("getcwd failed");
+            buffer[buffer_pos++] = input[j];
         }
-    } else if (strcmp(command, "exit") == 0) {
-        exit(EXIT_SUCCESS);
     }
+
+    if (buffer_pos > 0) {
+        buffer[buffer_pos] = '\0';
+        args[i++] = strdup(buffer);
+    }
+
+    args[i] = NULL;
 }
 
-void handle_cd(char *directory) {
-    if (directory != NULL) {
-        if (chdir(directory) != 0) {
-            perror("cd failed");
+
+void shell_loop(char **directories, int dir_count) {
+    char input[MAX_COMMAND_LENGTH];
+    char *args[MAX_COMMANDS];
+
+    while (1) {
+        printf("$ ");
+        fflush(stdout);
+        
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            break;
         }
-    } else {
-        printf("Usage: cd <directory>\n");
+        
+        input[strcspn(input, "\n")] = '\0';
+        if (strlen(input) == 0) {
+            continue;
+        }
+
+        add_to_history(input);
+
+        parse_command(input, args);
+
+        if (strcmp(args[0], "exit") == 0) {
+            break;
+        } else if (strcmp(args[0], "cd") == 0) {
+            if (args[1] == NULL) {
+                fprintf(stderr, "cd: expected argument\n");
+            } else {
+                change_directory(args[1]);
+            }
+        } else if (strcmp(args[0], "pwd") == 0) {
+            print_working_directory();
+        } else if (strcmp(args[0], "history") == 0) {
+            show_history();
+        } else {
+            execute_command(args);
+        }
     }
 }
 
 int main(int argc, char *argv[]) {
-    read_commands(argc, argv);
-
-    while (1) {
-        read_input();
-        char *input = commands[num_commands - 1];
-        char *command = strtok(input, " ");
-        char *args[MAX_COMMAND_LENGTH];
-        int i = 0;
-
-        while (command != NULL && i < MAX_COMMAND_LENGTH - 1) {
-            args[i++] = command;
-            command = strtok(NULL, " ");
-        }
-        args[i] = NULL;
-
-        if (args[0] == NULL) {
-            continue;
-        }
-
-        if (strcmp(args[0], "cd") == 0) {
-            handle_cd(args[1]);
-        } else if (strcmp(args[0], "history") == 0 || strcmp(args[0], "pwd") == 0 || strcmp(args[0], "exit") == 0) {
-            execute_custom_command(args[0]);
-        } else {
-            int found = 0;
-            for (int j = 0; j < num_paths; j++) {
-                char full_path[MAX_PATH_LENGTH + MAX_COMMAND_LENGTH];
-                snprintf(full_path, sizeof(full_path), "%s/%s", paths[j], args[0]);
-                if (access(full_path, X_OK) == 0) {
-                    execute_command(full_path, args);
-                    found = 1;
-                    break;
-                }
-            }
-            if (!found) {
-                execute_command(args[0], args);
-            }
-        }
-    }
-
+    shell_loop(argv + 1, argc - 1);
     return 0;
 }
