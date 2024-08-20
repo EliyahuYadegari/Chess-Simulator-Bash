@@ -4,7 +4,7 @@ This repository contains a set of Bash scripts designed to help you manage and a
 
 ## Installation
 
-1. Clone this repository to your local machine:
+1. Clone this repository to your local machine and enter to "Chess_Simulator_Bash" folder:
 
     ```bash
     cd Chess_Simulator_Bash
@@ -15,6 +15,7 @@ This repository contains a set of Bash scripts designed to help you manage and a
     ```bash
     chmod +x ./split_pgn.sh
     chmod +x ./chess_sim.sh
+    chmod +x ./myshell.c
     ```
 
 ## Usage
